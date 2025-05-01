@@ -7,8 +7,7 @@ from googletrans import Translator
 import asyncio
 import datetime
 from pycbrf.toolbox import ExchangeRates
-
-
+                                                #Gesicht - Уход за лицом
 options = webdriver.ChromeOptions()
 options.add_argument("--disable-blink-features=AutomationControlled")
 
@@ -55,7 +54,14 @@ def clean_and_filter_sizes_and_prices(sizes, prices):
 
         if "ml" in size:
             size_value = size.split("ml")[0].strip()  # Извлекаем числовое значение
-            size_cleaned = f"Объём:{size_value} мл"  # Преобразуем в нужный формат
+            size_cleaned = f"Объём:{size_value} мл"
+        elif "stk" in size.lower():
+            # Приводим к нижнему регистру для проверки, а затем используем оригинальную строку для split
+            size_value = size.split("Stk")[0].strip()  # Извлекаем числовое значение
+            size_cleaned = f"Объём:{size_value} шт"
+        elif "g" in size:
+            size_value = size.split("g")[0].strip()
+            size_cleaned = f"Объём:{size_value} г"
         else:
             size_cleaned = size
 
@@ -87,6 +93,53 @@ def adjust_price(price_in_euro):
         price_in_euro *= 1.4
 
     return price_in_euro
+
+def process_brand_type(brand_type):
+    translation_map = {
+        "KÖRPEREMULSION": "Эмульсия для тела",
+        "Fußpeeling": "Скраб для ног",
+        "Body Milk": "Молочко для тела",
+        "Körpercreme": "Крем для тела",
+        "Sonnencreme": "Солнцезащитный крем",
+        "Körperpflegeset": "Набор для ухода за телом",
+        "Körperspray": "Спрей для тела",
+        "Deodorant Roll-On": "Дезодорант-ролл",
+        "Duschgel": "Гель для душа",
+        "BB Cream": "ВВ-крем",
+        "Dekolletécreme": "Крем для декольте",
+        "Körperbutter": "Масло для тела",
+        "Bodylotion": "Лосьон для тела",
+        "After Sun Lotion": "Лосьон после загара",
+        "Sonnengel": "Гель для загара",
+        "Körperöl": "Масло для тела",
+        "Handcreme": "Крем для рук",
+        "Deodorant Spray": "Спрей-дезодорант",
+        "Deodorant Stick": "Стик-дезодорант",
+        "After Sun Balsam": "Бальзам после загара",
+        "Deodorant Creme": "Крем-дезодорант",
+        "Sonnenlotion": "Лосьон для загара",
+        "Trockenöl": "Сухое масло",
+        "Selbstbräunungscreme": "Крем для автозагара",
+        "Selbstbräunungsserum": "Сыворотка для автозагара",
+        "Selbstbräunungsspray": "Спрей для автозагара",
+        "Selbstbräunungsgel": "Гель для автозагара",
+        "Körperpeeling": "Пилинг для тела",
+        "Nagellack": "Лак для ногтей",
+        "Set": "Набор",
+        "Sonnenspray": "Спрей для загара",
+        "IPL-Gerät": "IPL-аппарат",
+        "Silikonpad": "Силиконовая подушечка",
+        "Stückseife": "Твердое мыло",
+        "Haarmaske": "Маска для волос",
+        "Selbstbräunungshandschuh": "Перчатка для автозагара",
+        "Selbstbräunungsmousse": "Мусс для автозагара",
+        "Körperbalsam": "Бальзам для тела",
+        "Sonnenöl": "Масло для загара",
+        "Sonnenstift": "Карандаш от солнца",
+        "Nagellackentferner": "Средство для снятия лака",
+        "Sonnenmilch": "Солнцезащитное молочко"
+    }
+    return translation_map.get(brand_type, "")
 
 def parse_photos(driver):
     photos = []
@@ -124,8 +177,7 @@ def parse_photos(driver):
                 print(f"Error while navigating carousel: {e}")
                 break
 
-        # Закрытие карусели
-        close_button = driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Close"]')
+        close_button = driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Close"]') # Закрытие карусели
         close_button.click()
         time.sleep(1)
     except Exception as e:
@@ -134,13 +186,12 @@ def parse_photos(driver):
 
     return photos
 
-
 # Основная асинхронная функция
 async def main():
     try:
         driver.maximize_window()
         # Открываем первую страницу каталога
-        driver.get('https://www.flaconi.at/parfum/')
+        driver.get('https://www.flaconi.at/pflege-koerper/')
         time.sleep(5)
         parent_uid_counter = 1
         data = []
@@ -184,7 +235,17 @@ async def main():
                 except Exception:
                     product_name = "N/A"
 
+                try:
+                    brand_type_element = driver.find_element(By.CSS_SELECTOR,
+                                                             'span[data-qa-block="product_brand_tyoe"]')
+                    brand_type = brand_type_element.text.strip()
+                    brand_type = process_brand_type(brand_type)  # Обрабатываем значение
+                except Exception:
+                    brand_type = ""
+
                 full_product_name = f"{brand_name} {product_name}".strip()
+                if brand_type:
+                    full_product_name += f" {brand_type}"
 
                 # try:
                 #    description_element = driver.find_element(By.CSS_SELECTOR, 'span.O3VZd.pdp-product-info-details')
@@ -256,6 +317,10 @@ async def main():
                         })
 
                     for size, price in zip(sizes[1:], prices[1:]):
+                        data.append(
+                            {'Brand': '', 'Name': full_product_name, 'Text': '', 'Link': '', 'Title': '', 'Photo': '',
+                             'Editions': size, 'Price': price, 'Parent UID': parent_uid_counter})
+                    if sizes and prices:
                         data.append({
                             'Brand': '',
                             'Name': full_product_name,
@@ -263,59 +328,52 @@ async def main():
                             'Link': '',
                             'Title': '',
                             'Photo': '',
-                            'Editions': size,
-                            'Price': price,
-                            'Parent UID': parent_uid_counter
+                            'Editions': '',
+                            'Price': '',
+                            'Parent UID': '',
+                            'Category': f"Уход за телом;{brand_type};",
+                            'Characteristics:Среднее время доставки': '2-3 недели'
                         })
-
-                    data.append({
-                        'Brand': '',
-                        'Name': full_product_name,
-                        'Text': '',
-                        'Link': '',
-                        'Title': '',
-                        'Photo': '',
-                        'Editions': '',
-                        'Price': '',
-                        'Parent UID': '',
-                        'Category': 'Парфюмерия',
-                        'Characteristics:Среднее время доставки': '3 недели'
-                    })
-
-                    data.append({
-                        'Brand': brand_name,
-                        'Name': full_product_name,
-                        'Text': f"Ссылка на оригинальный товар: {product_link}",
-                        'Link': '',
-                        'Title': '',
-                        'Photo': '',
-                        'Editions': '',
-                        'Price': '',
-                        'Parent UID': ''
-                    })
+                    if sizes and prices:
+                        data.append({
+                            'Brand': brand_name,
+                            'Name': full_product_name,
+                            'Text': f"Ссылка на австрийский сайт: {product_link}",
+                            'Link': '',
+                            'Title': '',
+                            'Photo': '',
+                            'Editions': '',
+                            'Price': '',
+                            'Parent UID': ''
+                        })
 
                 parent_uid_counter += 1
 
-            # После обработки всех товаров на странице пытаемся перейти на следующую страницу
-            try:
-                next_button = driver.find_element(
-                    By.CSS_SELECTOR,
-                    "a.Paginationstyle__PageLink-sc-d38xli-1.Paginationstyle__NextPage-sc-d38xli-3"
-                )
-                next_href = next_button.get_attribute("href")
+            # Перед поиском кнопки "Следующая страница" делаем скролл вниз
+            time.sleep(3)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
+
+            # Ищем кнопку по XPath
+            next_buttons = driver.find_elements(By.XPATH,
+                                                "//a[contains(@class, 'Paginationstyle__NextPage-sc-d38xli-3')]")
+            if next_buttons:
+                next_href = next_buttons[0].get_attribute("href")
+                print(f"Найден next_href: {next_href}")
                 if next_href:
-                    # Если ссылка относительная, добавляем домен
+                    # Если ссылка относительная – добавляем домен
                     if next_href.startswith('/'):
-                        next_page_url = "https://www.flaconi.at" + next_href
+                        next_page_url = f"https://www.flaconi.at{next_href}"
                     else:
                         next_page_url = next_href
                     print("Переход на следующую страницу:", next_page_url)
                     driver.get(next_page_url)
+                    time.sleep(5)
                 else:
                     print("Ссылка на следующую страницу отсутствует. Выходим из цикла.")
                     break
-            except Exception as e:
-                print(f"Ошибка при переходе на следующую страницу или пагинация закончилась: {e}")
+            else:
+                print("Кнопка 'Следующая страница' не найдена. Выходим из цикла.")
                 break
 
         # Сохранение данных в Excel
@@ -324,7 +382,7 @@ async def main():
             'Parent UID', 'Category', 'Characteristics:Среднее время доставки', 'Brand'
         ])
         current_time = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
-        filename = f'Parfum_{current_time}.xlsx'
+        filename = f'Body_{current_time}.xlsx'
         df.to_excel(filename, index=False)
         print(f"Данные успешно сохранены в файл '{filename}'")
 
@@ -333,7 +391,6 @@ async def main():
     finally:
         driver.close()
         driver.quit()
-
 
 # Запуск основной асинхронной функции
 if __name__ == "__main__":
