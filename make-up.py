@@ -1,19 +1,23 @@
+from pandas.core.internals.blocks import external_values
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 import pandas as pd
 import time
-from googletrans import Translator
 import asyncio
 import datetime
 from pycbrf.toolbox import ExchangeRates
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from itertools import zip_longest
+
+import methods
+import openpyxl
 
 options = webdriver.ChromeOptions()
 options.add_argument("--disable-blink-features=AutomationControlled")
 
-s = Service(executable_path='C:/Users/azaza/PycharmProjects/PythonProject13/chromedriver-win64/chromedriver.exe')
+s = Service(executable_path='C:/Users/evzhe/Parser-Flaconi/chromedriver-win64/chromedriver.exe')
 driver = webdriver.Chrome(service=s, options=options)
 
 driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -35,69 +39,8 @@ euro_to_rub = get_euro_to_rub_rate()
 print("Нынешний курс", euro_to_rub)
 
 def convert_to_rubles(price_in_euro):
-    adjusted_price = adjust_price(price_in_euro)
+    adjusted_price = methods.adjust_price(price_in_euro)
     return round(adjusted_price * euro_to_rub, 2)
-
-async def translate_description(description, src_lang='de', dest_lang='ru'):
-    translator = Translator()
-    try:
-        print(description)
-        translated = await translator.translate(description, src=src_lang, dest=dest_lang)
-        return translated.text
-    except Exception as e:
-        print(f"Error during translation: {e}")
-        return "Перевод недоступен"
-
-def clean_and_filter_sizes_and_prices(sizes, prices):
-    filtered_data = {}
-    for size, price in zip(sizes, prices):
-        if "Duftset" in size:
-            continue
-
-        if "ml" in size:
-            size_value = size.split("ml")[0].strip()  # Извлекаем числовое значение
-            size_cleaned = f"Объём:{size_value} мл"
-        elif "stk" in size.lower():
-            # Приводим к нижнему регистру для проверки, а затем используем оригинальную строку для split
-            size_value = size.split("Stk")[0].strip()  # Извлекаем числовое значение
-            size_cleaned = f"Объём:{size_value} шт"
-        elif "g" in size:
-            size_value = size.split("g")[0].strip()
-            size_cleaned = f"Объём:{size_value} г"
-        elif "Augen Make-up Set" in size:
-            size_value = size.split("Augen Make-up Set")[0].strip()
-            size_cleaned = f"Объём:{size_value} Набор для макияжа глаз"
-        else:
-            size_cleaned = size
-
-        try:
-            price = float(price)
-        except ValueError:
-            continue
-
-        if size_cleaned not in filtered_data or price > filtered_data[size_cleaned]:
-            filtered_data[size_cleaned] = price
-
-    filtered_sizes = list(filtered_data.keys())
-    filtered_prices = list(filtered_data.values())
-
-    return filtered_sizes, filtered_prices
-
-def adjust_price(price_in_euro):
-    if price_in_euro < 20:
-        price_in_euro *= 2.2
-    elif 20 <= price_in_euro < 30:
-        price_in_euro *= 2.0
-    elif 30 <= price_in_euro < 50:
-        price_in_euro *= 1.7
-    elif 50 <= price_in_euro < 60:
-        price_in_euro *= 1.6
-    elif 60 <= price_in_euro < 70:
-        price_in_euro *= 1.5
-    else:
-        price_in_euro *= 1.4
-
-    return price_in_euro
 
 def click_different_volumes_2(driver):
     try:
@@ -193,55 +136,22 @@ def click_different_volumes_1(driver):
         print(f"Ошибка при поиске вариантов объемов: {e}")
         return None, None
 
+def parse_main_photo(driver):
+    main_photos = []
+    try:
+        image_element = driver.find_element(By.CSS_SELECTOR,
+            'picture.ProductPreviewSliderstyle__Picture-sc-195u70x-3 img')
+        photo_url = image_element.get_attribute('src')
 
-def process_brand_type(brand_type):
-    translation_map = {
-        "FLÜSSIGE FOUNDATION": "Тональная основа",
-        "Lipgloss": "Блеск для губ",
-        "Нighlighter": "Хайлайтер",
-        "Wimpernserum": "Сыворотка для ресниц",
-        "Concealer": "Консилер",
-        "Flüssige Foundation": "Тональная основа",
-        "Rouge": "Румяна",
-        "Mascara": "Тушь для ресниц",
-        "Gesichtscreme": "Крем для лица",
-        "Cushion Foundation": "Тональная основа-кушон",
-        "Stick Foundation": "Тональный стик",
-        "Augenbrauenfarbe": "Краска для бровей",
-        "Lidschatten": "Тени для век",
-        "CC Cream": "СС-крем",
-        "Lippenstift": "Помада",
-        "Lippenbalsam": "Бальзам для губ",
-        "Puderperlen": "Пудра",
-        "Augenmake-up Entferner": "Средство для снятия макияжа с глаз",
-        "Loser Puder": "Рассыпчатая пудра",
-        "Creme Foundation": "Тональный крем",
-        "Kompaktpuder": "Компактная пудра",
-        "Fixing Spray": "Фиксирующий спрей",
-        "Reinigungsöl": "Гидрофильное масло",
-        "Reinigungsschaum": "Очищающая пенка для умывания",
-        "Getönte Gesichtscreme": "Тональный крем для лица",
-        "Fixierpuder": "Фиксирующая пудра",
-        "Reinigungsgel": "Очищающий гель для умывания",
-        "Kompakt Foundation": "Компактная основа",
-        "Augenbrauenstift": "Карандаш для бровей",
-        "Make-up Palette": "Палитра для макияжа",
-        "Augen Make-up Set": "Набор для макияжа глаз",
-        "Lippenöl": "Масло для губ",
-        "Augenbrauengel": "Гель для бровей",
-        "Lippenstift Hülle": "Футляр для помады",
-        "Reinigungsmilch": "Очищающее молочко",
-        "BB Cream": "ВВ-крем",
-        "LOSER PUDER MIT NATÜRLICHEM FINISH": "Рассыпчатая пудра с натуральным финишем",
-        "Primer": "Праймер",
-        "Bronzingpuder": "Бронзирующая пудра",
-        "Eyeliner": "Подводка для глаз",
-        "Cremerouge": "Кремовые румяна",
-        "Puder": "Пудра",
-        "NAGELLACK – FARBE UND GLANZ MIT LANGEM HALT": "Лак для ногтей – стойкий цвет и блеск",
-        "Bronzer": "Бронзер",
-    }
-    return translation_map.get(brand_type, "")
+        if photo_url and '/product/' not in photo_url:
+            main_photos.append(photo_url)
+        else:
+            main_photos.append("N/A")
+    except Exception as e:
+        print(f"Error extracting main photo: {e}")
+        main_photos.append("N/A")
+
+    return main_photos
 
 
 def parse_photos(driver):
@@ -288,6 +198,22 @@ def parse_photos(driver):
         photos = ["N/A"]
 
     return photos
+
+def parse_tones_photo(driver):
+    buttons = driver.find_elements(By.CSS_SELECTOR, '.swiper-slide [role="button"]')
+    all_photos = []
+    for btn in buttons:
+        try:
+            driver.execute_script("arguments[0].scrollIntoView(true);", btn)  # если требуется скролл
+            btn.click()
+            main_photo = parse_main_photo(driver)
+            print("ПЕРВЫЙ ПРИНТ:", main_photo)
+            time.sleep(0.3)  # задержка, чтобы успевала отработать анимация
+            all_photos.extend(main_photo)  # Добавляем найденные фото в общий список
+        except Exception as e:
+            print(f"Ошибка при клике: {e}")
+
+    return all_photos
 
 def parse_tones(driver):
     try:
@@ -352,7 +278,6 @@ def parse_tones(driver):
         print(f"Error parsing tones: {e}")
         return []
 
-
 # Основная асинхронная функция
 async def main():
     try:
@@ -381,7 +306,7 @@ async def main():
 
             # Собираем ссылки на товары на текущей странице
             product_elements = driver.find_elements(By.CSS_SELECTOR, 'a.Linkstyle__A-sc-16w5a4n-0')
-            product_links = [elem.get_attribute('href') for elem in product_elements][:24]
+            product_links = [elem.get_attribute('href') for elem in product_elements][8:10]
 
             print(f"Найдено {len(product_links)} товаров на текущей странице.")
 
@@ -406,22 +331,13 @@ async def main():
                     brand_type_element = driver.find_element(By.CSS_SELECTOR,
                                                              'span[data-qa-block="product_brand_tyoe"]')
                     brand_type = brand_type_element.text.strip()
-                    brand_type = process_brand_type(brand_type)  # Обрабатываем значение
+                    brand_type = methods.process_brand_type(brand_type)  # Обрабатываем значение
                 except Exception:
                     brand_type = ""
 
                 full_product_name = f"{brand_name} {product_name}".strip()
                 if brand_type:
                     full_product_name += f" {brand_type}"
-
-                # try:
-                #    description_element = driver.find_element(By.CSS_SELECTOR, 'span.O3VZd.pdp-product-info-details')
-                #    product_description = description_element.text.strip()
-                    #except Exception:
-                #    product_description = "N/A"
-
-                # Вызов асинхронного перевода описания
-                #translated_description = await translate_description(product_description)
 
                 sizes = []
                 try:
@@ -454,32 +370,40 @@ async def main():
                 except Exception:
                     prices = ["N/A"]
 
-                sizes, prices = clean_and_filter_sizes_and_prices(sizes, prices)
+                sizes, prices = methods.clean_and_filter_sizes_and_prices(sizes, prices)
                 photos = parse_photos(driver)
                 tones_and_prices = parse_tones(driver)
+                tone_photos = parse_tones_photo(driver)
+                print("ВТОРОЙ ПРИНТ", tone_photos)
                 new_sizes = click_different_volumes_1(driver)
                 print(len(new_sizes))
 
                 if tones_and_prices:
-                    # флаг — чтобы ссылку и главное фото поставить только один раз
-                    first_row = True
+                    # кликаем для наполнения new_sizes
                     click_different_volumes_2(driver)
-                    # для каждого тона создаём строку с Edition и Price
-                    for tp in tones_and_prices:
+
+                    external_id = parent_uid_counter + 1
+                    first_row = True
+
+                    # Вместо zip используем zip_longest
+                    for tp, photo_url in zip_longest(tones_and_prices, tone_photos, fillvalue=None):
+                        if tp is None:
+                            continue  # пропускаем, если данных о тоне нет
+
+                        external_id += 1
                         data.append({
                             'Brand': brand_name,
                             'Name': full_product_name,
                             'Text': '',
-                            # Ссылка и главное фото только в первой строке
                             'Link': product_link if first_row else '',
                             'Title': full_product_name if first_row else '',
-                            'Photo': photos[0] if first_row and photos else '',
-                            'Editions': tp['Edition'] + ";" + (sizes[0] if sizes else "Объём:N/A") ,  # Тон:XXX
-                            'Price': tp['Price'],  # конвертированная цена
-                            'Parent UID': parent_uid_counter
+                            'Photo': photo_url or '',  # подставим пустую строку, если фото нет
+                            'Editions': tp['Edition'] + ";" + (sizes[0] if sizes else "Объём:N/A"),
+                            'Price': tp['Price'],
+                            'Parent UID': parent_uid_counter,
+                            'External ID': external_id
                         })
                         first_row = False
-
                     data.append({
                         'Brand': '',
                         'Name': full_product_name,
@@ -505,21 +429,34 @@ async def main():
                                 'Photo': '',
                                 'Editions': tp['Edition'] + ";" + new_sizes[i]['size'],
                                 'Price': tp['Price'],
-                                'Parent UID': ''
+                                'Parent UID': parent_uid_counter
                             })
 
-                    # теперь дополнительные фото — по одной строке с пустыми всеми остальными полями
-                    for extra_photo in photos[1:]:
+                    # # теперь дополнительные фото — по одной строке с пустыми всеми остальными полями
+                    # for extra_photo in photos[1:]:
+                    #     data.append({
+                    #         'Brand': '',
+                    #         'Name': full_product_name,
+                    #         'Text': '',
+                    #         'Link': '',
+                    #         'Title': '',
+                    #         'Photo': extra_photo,
+                    #         'Editions': '',
+                    #         'Price': '',
+                    #         'Parent UID': parent_uid_counter
+                    #     })
+
+                    for tone_photo in tone_photos[:]:
                         data.append({
                             'Brand': '',
                             'Name': full_product_name,
                             'Text': '',
                             'Link': '',
                             'Title': '',
-                            'Photo': extra_photo,
+                            'Photo': tone_photo,
                             'Editions': '',
                             'Price': '',
-                            'Parent UID': ''
+                            'Parent UID': parent_uid_counter
                         })
 
                     # и, как раньше, добавляем категория/ссылка в Text
@@ -569,7 +506,7 @@ async def main():
         # Сохранение данных в Excel
         df = pd.DataFrame(data, columns=[
             'Name', 'Text', 'Link', 'Title', 'Editions', 'Price', 'Photo',
-            'Parent UID', 'Category', 'Characteristics:Среднее время доставки', 'Brand'
+            'Parent UID', 'External ID', 'Category', 'Characteristics:Среднее время доставки', 'Brand'
         ])
         current_time = datetime.datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
         filename = f'Make_up_{current_time}.xlsx'
